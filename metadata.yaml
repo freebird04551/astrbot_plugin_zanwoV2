@@ -1,6 +1,6 @@
-name: astrbot_plugin_zanwo 
-desc: QQ点赞插件，每天可点50个赞，还能定时自动点赞 
-help: 发送指令 赞我 点赞 
-version: v1.0.9 
-author: Futureppo 、Zhalslar 
-repo: https://github.com/Futureppo/astrbot_plugin_zanwo 
+name: astrbot_plugin_zanwoV2
+desc: QQ名片点赞插件，每人每天最多20个赞，支持订阅触发点赞
+help: 发送 赞我 [数量]，数量范围1到20，默认20
+version: v2.0.0
+author: Futureppo 、Zhalslar
+repo: https://github.com/Futureppo/astrbot_plugin_zanwo

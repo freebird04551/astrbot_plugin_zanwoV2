@@ -1,14 +1,12 @@
-</div>
-
 <div align="center">
 
 ![:name](https://count.getloli.com/@astrbot_plugin_zanwo?name=astrbot_plugin_zanwo&theme=minecraft&padding=7&offset=0&align=top&scale=1&pixelated=1&darkmode=auto)
 
-# astrbot_plugin_zanwo
+# astrbot_plugin_zanwoV2
 
 _✨ [astrbot](https://github.com/AstrBotDevs/AstrBot) 赞我插件 ✨_
 
-[![Python 3.8+](https://img.shields.io/badge/Python-3.8%2B-blue.svg)](https://www.python.org/)
+[![Python 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue.svg)](https://www.python.org/)
 [![GitHub](https://img.shields.io/badge/作者-Futureppo-blue)](https://github.com/Futureppo)
 [![GitHub](https://img.shields.io/badge/作者-Zhalslar-blue)](https://github.com/Zhalslar)
 
@@ -16,22 +14,23 @@ _✨ [astrbot](https://github.com/AstrBotDevs/AstrBot) 赞我插件 ✨_
 
 ## 📦 插件简介
 
-【仅QQ】QQ名片赞，同时用户可以订阅点赞，订阅后bot每天自动为用户点赞。可在 控制面板>插件配置 开启白名单群聊, 开启后只有在白名单群聊中才能使用插件。
+【仅QQ】QQ名片点赞插件。用户可订阅点赞，插件每天首次被点赞命令触发时会处理订阅用户。可在 控制面板>插件配置 设置群聊白名单；未配置时所有群聊均可使用。
 
 ## ⌨️ 命令
 
 |     命令      |      说明        |
 |:-------------:|:------------------------------------:|
-|     赞我       | 给用户点赞（可不带前缀）  |
-|     赞@XXX       | 给用户点赞，可以同时@多个人  |
-| /订阅点赞      | 订阅后bot每天自动为用户点赞    |
-| /取消订阅点赞   | 取消订阅后bot每天不再自动为用户点赞 |
+|     赞我 [数量]       | 给自己点赞，数量可省略，默认20  |
+|     赞@XXX [数量]       | 给被@用户点赞，可同时@多人，默认20  |
+| /订阅点赞      | 加入每日触发点赞列表    |
+| /取消订阅点赞   | 退出每日触发点赞列表 |
 | /订阅点赞列表   | 查看当前订阅点赞的用户ID列表 |
 | /谁赞了bot      | 查看谁赞了bot |
 
 ## 📌 注意事项
 
-- 点赞限制：非好友每天只能点50人，每人50个赞
+- 点赞限制：每天对每位用户最多点20个赞
+- SnowLuma 的点赞接口不返回实际到账数量；插件显示的是接口接受的批量点赞数量，实际到账以QQ为准
 
 ## ❓ 常见问题
 
