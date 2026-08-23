@@ -174,17 +174,13 @@ class ZanwoPlugin(Star):
     @filter.regex(r"^赞.*")
     async def like_me(self, event: AiocqhttpMessageEvent):
         messages = event.get_messages()
-        plain_text = "".join(
-            segment.text
-            for segment in messages
-            if isinstance(segment, Comp.Plain)
-        ).strip()
-        amount_match = re.search(r"(\d+)\s*$", plain_text)
+        command = event.message_str.strip()
+        amount_match = re.search(r"(\d+)\s*$", command)
         amount = int(amount_match.group(1)) if amount_match else MAX_LIKES
         command_text = (
-            plain_text[: amount_match.start()].strip()
+            command[: amount_match.start()].strip()
             if amount_match
-            else plain_text
+            else command
         )
         if not 1 <= amount <= MAX_LIKES:
             yield event.plain_result(f"点赞数量必须在1到{MAX_LIKES}之间")
