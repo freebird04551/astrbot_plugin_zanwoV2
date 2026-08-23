@@ -24,9 +24,9 @@ PROFILE_LIKE_MAX_ROWS = 1000
 
 def normalize_qq_id(value: object) -> Optional[str]:
     qq_id = str(value).strip()
-    if not qq_id.isascii() or not qq_id.isdecimal() or int(qq_id) <= 0:
+    if not qq_id.isascii() or not qq_id.isdecimal():
         return None
-    return qq_id
+    return qq_id.lstrip("0") or None
 
 
 def normalize_qq_ids(values: Iterable[object]) -> list[str]:
@@ -60,7 +60,7 @@ def like_failure_reply(error_message: str) -> str:
     "Futureppo",
     "发送 赞我 自动点赞",
     "2.0.0",
-    "https://github.com/Futureppo/astrbot_plugin_zanwo",
+    "https://github.com/freebird04551/astrbot_plugin_zanwoV2",
 )
 class ZanwoPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
@@ -127,19 +127,8 @@ class ZanwoPlugin(Star):
     async def _like(
         self, client: CQHttp, ids: list[str], self_id: str, amount: int
     ) -> str:
-        """向有效且不重复的 QQ 号发送名片赞。"""
         replies = []
-        seen_ids: set[str] = set()
-        for raw_id in ids:
-            qq_id = normalize_qq_id(raw_id)
-            if not qq_id:
-                invalid_value = str(raw_id).strip() or "空值"
-                replies.append(f"无效的QQ号：{invalid_value}")
-                continue
-            if qq_id in seen_ids:
-                continue
-            seen_ids.add(qq_id)
-
+        for qq_id in normalize_qq_ids(ids):
             username = qq_id
             try:
                 user_info = await client.call_action(
@@ -171,30 +160,47 @@ class ZanwoPlugin(Star):
 
         return "\n".join(replies)
 
-    @filter.regex(r"^赞.*")
+    @filter.regex(r"^赞")
     async def like_me(self, event: AiocqhttpMessageEvent):
         messages = event.get_messages()
         command = event.message_str.strip()
         amount_match = re.search(r"(\d+)\s*$", command)
-        amount = int(amount_match.group(1)) if amount_match else MAX_LIKES
+        try:
+            amount = int(amount_match.group(1)) if amount_match else MAX_LIKES
+        except ValueError:
+            amount = MAX_LIKES + 1
         command_text = (
             command[: amount_match.start()].strip()
             if amount_match
             else command
         )
-        if not 1 <= amount <= MAX_LIKES:
-            yield event.plain_result(f"点赞数量必须在1到{MAX_LIKES}之间")
-            return
+
+        target_mentions = [
+            segment
+            for segment in messages
+            if isinstance(segment, Comp.At)
+            and normalize_qq_id(segment.qq)
+            and str(segment.qq) != str(event.get_self_id())
+        ]
+        command_without_mentions = command_text
+        for mention in target_mentions:
+            rendered_mention = f"@{mention.name or ''}({mention.qq})"
+            command_without_mentions = re.sub(
+                rf"\s*{re.escape(rendered_mention)}\s*",
+                "",
+                command_without_mentions,
+                count=1,
+            )
 
         if command_text == "赞我":
             target_ids = [event.get_sender_id()]
+        elif command_without_mentions == "赞":
+            target_ids = [str(mention.qq) for mention in target_mentions]
         else:
-            self_id = str(event.get_self_id())
-            target_ids = [
-                str(segment.qq)
-                for segment in messages
-                if isinstance(segment, Comp.At) and str(segment.qq) != self_id
-            ]
+            return
+        if not 1 <= amount <= MAX_LIKES:
+            yield event.plain_result(f"点赞数量必须在1到{MAX_LIKES}之间")
+            return
         if not target_ids:
             yield event.plain_result("用法：赞我 [数量]，或赞@用户 [数量]")
             return

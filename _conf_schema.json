@@ -2,13 +2,13 @@
     "white_list_groups": {
         "description": "群聊白名单",
         "type": "list",
-        "hint": "启用赞我功能的群聊, 没填写则默认全部群聊可用",
+        "hint": "启用点赞功能的群聊，留空则全部群聊可用",
         "default": []
     },
     "subscribed_users": {
         "description": "订阅点赞的用户",
         "type": "list",
-        "hint": "订阅点赞用户的QQ号,可不填",
+        "hint": "订阅点赞用户的QQ号，可不填",
         "default": []
     },
     "zanwo_date": {
@@ -16,6 +16,6 @@
         "type": "string",
         "hint": "如果检测到当前日期与点赞日期不同时，则触发自动点赞，并更新点赞日期",
         "invisible": true,
-        "default": "2025-01-01"
+        "default": ""
     }
 }
