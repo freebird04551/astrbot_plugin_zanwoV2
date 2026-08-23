@@ -220,7 +220,7 @@ class ZanwoPlugin(Star):
 
         Args:
             target(string): 点赞目标，可填 self、me、我，或明确的 QQ 号。未明确提供时默认给当前发言者点赞。
-            amount(integer): 点赞数量，范围为 1 到 20，默认为 20。
+            amount(int): 点赞数量，范围为 1 到 20，默认为 20。
         """
         try:
             amount = int(amount)
