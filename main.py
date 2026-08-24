@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import re
-from datetime import date
+from datetime import datetime, time, timedelta
 from typing import Iterable, Optional
 
 from aiocqhttp import CQHttp
@@ -18,6 +18,9 @@ from astrbot.core.star.filter.permission import PermissionType
 logger = logging.getLogger(__name__)
 
 MAX_LIKES = 20
+DEFAULT_AUTO_LIKE_TIME = "00:00"
+AUTO_LIKE_RETRY_SECONDS = 60
+AUTO_LIKE_MAX_SLEEP_SECONDS = 300
 PROFILE_LIKE_PAGE_SIZE = 50
 PROFILE_LIKE_MAX_ROWS = 1000
 
@@ -32,6 +35,13 @@ def normalize_qq_id(value: object) -> Optional[str]:
 def normalize_qq_ids(values: Iterable[object]) -> list[str]:
     normalized = (normalize_qq_id(value) for value in values)
     return list(dict.fromkeys(qq_id for qq_id in normalized if qq_id))
+
+
+def parse_daily_time(value: object) -> Optional[time]:
+    match = re.fullmatch(r"([01]\d|2[0-3]):([0-5]\d)", str(value).strip())
+    if not match:
+        return None
+    return time(hour=int(match.group(1)), minute=int(match.group(2)))
 
 
 def action_error_message(error: ActionFailed) -> str:
@@ -58,22 +68,42 @@ def like_failure_reply(error_message: str) -> str:
 @register(
     "astrbot_plugin_zanwoV2",
     "Futureppo",
-    "发送 赞我 自动点赞",
-    "2.0.0",
+    "QQ名片点赞与每日定时点赞",
+    "2.1.0",
     "https://github.com/freebird04551/astrbot_plugin_zanwoV2",
 )
 class ZanwoPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
         self.config = config
-        self._auto_like_tasks: set[asyncio.Task] = set()
+        self._auto_like_task: Optional[asyncio.Task] = None
         self.white_list_groups = set(
             normalize_qq_ids(config.get("white_list_groups", []))
         )
         self.subscribed_users = normalize_qq_ids(
             config.get("subscribed_users", [])
         )
-        self.last_auto_like_date: Optional[str] = config.get("zanwo_date")
+        self.last_auto_like_date: Optional[str] = None
+        self.auto_like_time = parse_daily_time(
+            config.get("auto_like_time", DEFAULT_AUTO_LIKE_TIME)
+        )
+
+    async def initialize(self) -> None:
+        stored_date = await self.get_kv_data("last_auto_like_date", None)
+        self.last_auto_like_date = stored_date or self.config.get("zanwo_date")
+        if self.last_auto_like_date and not stored_date:
+            await self.put_kv_data(
+                "last_auto_like_date", self.last_auto_like_date
+            )
+        if self.auto_like_time is None:
+            logger.error(
+                "Scheduled auto-like is disabled: invalid auto_like_time %r",
+                self.config.get("auto_like_time"),
+            )
+            return
+        self._auto_like_task = asyncio.create_task(
+            self._auto_like_loop(), name="zanwo-auto-like"
+        )
 
     def _is_group_allowed(self, event: AiocqhttpMessageEvent) -> bool:
         group_id = event.get_group_id()
@@ -93,51 +123,108 @@ class ZanwoPlugin(Star):
             event.bot, target_ids, str(event.get_self_id()), amount
         )
 
-    def _schedule_auto_like(self, client: CQHttp, self_id: str) -> None:
-        today = date.today().isoformat()
-        if not self.subscribed_users or self.last_auto_like_date == today:
-            return
-        self.last_auto_like_date = today
-        self.config["zanwo_date"] = today
-        self.config.save_config()
-        task = asyncio.create_task(
-            self._like(
-                client, list(self.subscribed_users), self_id, MAX_LIKES
-            )
-        )
-        self._auto_like_tasks.add(task)
-        task.add_done_callback(self._handle_auto_like_task)
+    def _next_auto_like_delay(self, now: datetime) -> float:
+        scheduled = datetime.combine(now.date(), self.auto_like_time)
+        if now < scheduled:
+            return (scheduled - now).total_seconds()
+        if self.last_auto_like_date == now.date().isoformat():
+            return (scheduled + timedelta(days=1) - now).total_seconds()
+        return 0
 
-    def _handle_auto_like_task(self, task: asyncio.Task) -> None:
-        self._auto_like_tasks.discard(task)
-        if task.cancelled():
-            return
-        try:
-            task.result()
-        except Exception:
-            logger.exception("Auto-like task failed")
+    async def _find_auto_like_accounts(self) -> dict[str, tuple[CQHttp, str]]:
+        accounts = {}
+        for platform in self.context.platform_manager.platform_insts:
+            if platform.meta().name != "aiocqhttp":
+                continue
+            client = getattr(platform, "bot", None)
+            connected_clients = getattr(client, "_wsr_api_clients", {})
+            for route_id in list(connected_clients):
+                self_id = normalize_qq_id(route_id)
+                if self_id:
+                    accounts[self_id] = (client, str(route_id))
+                elif route_id == "*":
+                    try:
+                        login_info = await client.call_action(
+                            "get_login_info", self_id="*"
+                        )
+                    except Error:
+                        continue
+                    if isinstance(login_info, dict):
+                        self_id = normalize_qq_id(login_info.get("user_id", ""))
+                        if self_id:
+                            accounts.setdefault(self_id, (client, "*"))
+
+        return accounts
+
+    async def _auto_like_loop(self) -> None:
+        while True:
+            try:
+                now = datetime.now()
+                today = now.date().isoformat()
+                delay = self._next_auto_like_delay(now)
+                if delay > 0:
+                    await asyncio.sleep(min(delay, AUTO_LIKE_MAX_SLEEP_SECONDS))
+                    continue
+
+                accounts = {}
+                if self.subscribed_users:
+                    accounts = await self._find_auto_like_accounts()
+                    if not accounts:
+                        logger.warning(
+                            "Scheduled auto-like is waiting for a connected QQ account"
+                        )
+                        await asyncio.sleep(AUTO_LIKE_RETRY_SECONDS)
+                        continue
+
+                self.last_auto_like_date = today
+                await self.put_kv_data("last_auto_like_date", today)
+                for self_id, (client, route_id) in accounts.items():
+                    await self._like(
+                        client,
+                        self.subscribed_users,
+                        route_id,
+                        MAX_LIKES,
+                        resolve_nickname=False,
+                    )
+                    logger.info(
+                        "Scheduled auto-like completed for %d users with QQ %s",
+                        len(self.subscribed_users),
+                        self_id,
+                    )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("Scheduled auto-like failed")
+                await asyncio.sleep(AUTO_LIKE_RETRY_SECONDS)
 
     async def terminate(self) -> None:
-        tasks = list(self._auto_like_tasks)
-        for task in tasks:
-            task.cancel()
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+        if self._auto_like_task:
+            self._auto_like_task.cancel()
+            await asyncio.gather(self._auto_like_task, return_exceptions=True)
+            self._auto_like_task = None
 
     async def _like(
-        self, client: CQHttp, ids: list[str], self_id: str, amount: int
+        self,
+        client: CQHttp,
+        ids: list[str],
+        self_id: str,
+        amount: int,
+        resolve_nickname: bool = True,
     ) -> str:
         replies = []
         for qq_id in normalize_qq_ids(ids):
             username = qq_id
-            try:
-                user_info = await client.call_action(
-                    "get_stranger_info", user_id=int(qq_id), self_id=self_id
-                )
-                if isinstance(user_info, dict):
-                    username = user_info.get("nickname") or qq_id
-            except Error as error:
-                logger.warning("Failed to get nickname for QQ %s: %s", qq_id, error)
+            if resolve_nickname:
+                try:
+                    user_info = await client.call_action(
+                        "get_stranger_info", user_id=int(qq_id), self_id=self_id
+                    )
+                    if isinstance(user_info, dict):
+                        username = user_info.get("nickname") or qq_id
+                except Error as error:
+                    logger.warning(
+                        "Failed to get nickname for QQ %s: %s", qq_id, error
+                    )
 
             try:
                 await client.call_action(
@@ -209,7 +296,6 @@ class ZanwoPlugin(Star):
         if not result:
             return
         yield event.plain_result(result)
-        self._schedule_auto_like(event.bot, str(event.get_self_id()))
 
     @filter.llm_tool(name="like_qq_profile")
     async def like_qq_profile(
@@ -243,7 +329,6 @@ class ZanwoPlugin(Star):
         result = await self._run_like(event, target_ids, amount)
         if not result:
             return "当前会话不允许使用点赞功能。"
-        self._schedule_auto_like(event.bot, str(event.get_self_id()))
         return result
 
     def _save_subscribed_users(self) -> None:
@@ -259,7 +344,11 @@ class ZanwoPlugin(Star):
             return
         self.subscribed_users.append(sender_id)
         self._save_subscribed_users()
-        yield event.plain_result("订阅成功！插件每天触发时会自动为你点赞")
+        if self.auto_like_time is None:
+            yield event.plain_result("订阅成功，但自动点赞配置无效，请联系管理员检查")
+            return
+        scheduled_time = self.auto_like_time.strftime("%H:%M")
+        yield event.plain_result(f"订阅成功！插件每天{scheduled_time}会自动为你点赞")
 
     @filter.command("取消订阅点赞")
     async def unsubscribe_like(self, event: AiocqhttpMessageEvent):

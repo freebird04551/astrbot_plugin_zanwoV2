@@ -1,7 +1,7 @@
 name: astrbot_plugin_zanwoV2
-desc: QQ名片点赞插件，每人每天最多20个赞，支持订阅触发点赞
+desc: QQ名片点赞插件，每位用户每天最多20个赞，支持定时订阅点赞
 help: 发送 赞我 [数量] 或 赞@用户 [数量]，数量范围1到20，默认20
-version: v2.0.0
+version: v2.1.0
 author: Futureppo 、Zhalslar
 repo: https://github.com/freebird04551/astrbot_plugin_zanwoV2
 support_platforms:
